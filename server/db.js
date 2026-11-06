@@ -36,6 +36,7 @@ async function seed(db) {
 }
 
 export async function openDb(uri, name = DEFAULT_DB) {
+  if (!uri) throw new Error('MONGODB_URI is not set.');
   const client = new MongoClient(uri, { maxPoolSize: 5, serverSelectionTimeoutMS: 8000 });
   await client.connect();
   const db = client.db(name);

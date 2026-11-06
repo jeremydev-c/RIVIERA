@@ -90,6 +90,29 @@ test('sharing, Instagram and calendar are on the page', async () => {
   assert.match(body, /LOCATION:The Event Space\\, Westlands/);
 });
 
+test('pages still load when the database is missing', async () => {
+  const offline = await createApp({ adminPassword: PASSWORD });
+  const offlineServer = await new Promise((resolve) => { const s = offline.listen(0, () => resolve(s)); });
+  const url = `http://127.0.0.1:${offlineServer.address().port}`;
+  for (const path of ['/', '/tickets', '/dress-code', '/invite', '/menu', '/grand-riviera.ics']) {
+    assert.equal((await fetch(url + path)).status, 200, path);
+  }
+  const health = await fetch(`${url}/api/health`);
+  assert.equal(health.status, 503);
+  assert.equal((await health.json()).problem, 'MONGODB_URI is not set');
+  const state = await fetch(`${url}/api/state`);
+  assert.equal(state.status, 500);
+  assert.match((await state.json()).error, /try again/);
+  await new Promise((resolve) => offlineServer.close(resolve));
+  await offline.locals.close();
+});
+
+test('the health check reports a working database', async () => {
+  const { status, data } = await send('/api/health');
+  assert.equal(status, 200);
+  assert.deepEqual(data, { database: 'ok', committeeLogin: true });
+});
+
 test('board starts from the old counts and hides champagne', async () => {
   const { data } = await send('/api/state');
   assert.equal(data.stage, 'nominations');

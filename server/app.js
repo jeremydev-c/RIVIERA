@@ -1,6 +1,5 @@
 import express from 'express';
 import multer from 'multer';
-import sharp from 'sharp';
 import compression from 'compression';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -42,7 +41,20 @@ const withId = ({ _id, ...doc }) => ({ id: _id, ...doc });
 const bytes = (binary) => Buffer.from(binary.buffer.subarray(0, binary.position));
 
 export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, siteUrl = '', secureCookies = false }) {
-  const { db, close } = await openDb(mongoUri, dbName);
+  // Connects on first use, so pages that need no data still load if the database is down.
+  let db;
+  let close = async () => {};
+  let connecting;
+  const ensureDb = () => {
+    connecting ??= openDb(mongoUri, dbName).then((opened) => {
+      db = opened.db;
+      close = opened.close;
+    }).catch((error) => {
+      connecting = undefined;
+      throw error;
+    });
+    return connecting;
+  };
   const collection = (name) => db.collection(name);
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -96,6 +108,28 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
     next();
   });
   app.use(express.json({ limit: '32kb' }));
+
+  // Reports whether the database is reachable, without revealing any connection details.
+  app.get('/api/health', wrap(async (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    try {
+      await ensureDb();
+      await db.command({ ping: 1 });
+      res.json({ database: 'ok', committeeLogin: Boolean(adminPassword) });
+    } catch (error) {
+      console.error(error);
+      res.status(503).json({
+        database: 'unavailable',
+        problem: mongoUri ? error.name : 'MONGODB_URI is not set',
+        committeeLogin: Boolean(adminPassword),
+      });
+    }
+  }));
+
+  app.use(['/api', '/portraits', '/vote'], wrap(async (req, res, next) => {
+    await ensureDb();
+    next();
+  }));
 
   // Each browser gets an anonymous id, so one person backs a dish or votes once.
   const visitor = (req, res, next) => {
@@ -215,6 +249,7 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
     let image;
     try {
       // Re-encoding drops location data and rejects anything that is not an image.
+      const { default: sharp } = await import('sharp');
       image = await sharp(req.file.buffer, { limitInputPixels: 50_000_000 })
         .rotate()
         .resize(800, 1000, { fit: 'cover', position: 'attention' })
@@ -444,6 +479,7 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
   app.get('/vote/:id/card.jpg', wrap(async (req, res) => {
     const nominee = await sharedNominee(req.params.id, { image: 1 });
     if (!nominee) return res.sendStatus(404);
+    const { default: sharp } = await import('sharp');
     const card = await sharp(bytes(nominee.image))
       .resize(1200, 630, { fit: 'contain', background: '#0b0906' })
       .jpeg({ quality: 84 })
@@ -492,6 +528,6 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   });
 
-  app.locals.close = close;
+  app.locals.close = () => close();
   return app;
 }
