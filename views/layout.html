@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>%%TITLE%%</title>
+  <meta name="description" content="%%DESCRIPTION%%">
+  <meta name="theme-color" content="#0b0906">
+  <link rel="canonical" href="%%SITE_URL%%%%PATH%%">
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/img/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="The Grand Riviera">
+  <meta property="og:title" content="%%TITLE%%">
+  <meta property="og:description" content="%%DESCRIPTION%%">
+  <meta property="og:url" content="%%SITE_URL%%%%PATH%%">
+  <meta property="og:image" content="%%IMAGE%%">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="%%IMAGE_ALT%%">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="preload" href="/fonts/bodoni.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/bodoni-italic.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="preload" href="/fonts/jost.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="/css/site.css">
+  %%HEAD%%
+</head>
+<body data-night="%%NIGHT%%" data-night-end="%%NIGHT_END%%" data-focus="%%FOCUS%%">
+  <a class="skip" href="#main">Skip to content</a>
+
+  <svg class="sprite" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="g-foil" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#a67c2c"/>
+        <stop offset=".3" stop-color="#fbeebc"/>
+        <stop offset=".52" stop-color="#c79a3e"/>
+        <stop offset=".78" stop-color="#f3dc9a"/>
+        <stop offset="1" stop-color="#8a6420"/>
+      </linearGradient>
+      <path id="ray" d="M50 15 52.1 33h-4.2z"/>
+      <path id="ray-s" d="M50 23 51.6 33h-3.2z"/>
+    </defs>
+    <symbol id="sunmark" viewBox="0 0 100 100">
+      <path d="M34 54a16 16 0 0 1 32 0z"/>
+      <use href="#ray" transform="rotate(-78 50 54)"/><use href="#ray-s" transform="rotate(-58.5 50 54)"/>
+      <use href="#ray" transform="rotate(-39 50 54)"/><use href="#ray-s" transform="rotate(-19.5 50 54)"/>
+      <use href="#ray"/>
+      <use href="#ray-s" transform="rotate(19.5 50 54)"/><use href="#ray" transform="rotate(39 50 54)"/>
+      <use href="#ray-s" transform="rotate(58.5 50 54)"/><use href="#ray" transform="rotate(78 50 54)"/>
+      <rect x="12" y="58.5" width="76" height="3.4"/>
+      <rect x="24" y="66" width="52" height="3"/>
+      <rect x="34" y="72.8" width="32" height="2.6"/>
+      <rect x="43" y="79" width="14" height="2.2"/>
+    </symbol>
+    <symbol id="i-music" viewBox="0 0 120 120">
+      <rect x="44" y="16" width="32" height="56" rx="16" fill="none" stroke="currentColor" stroke-width="3"/>
+      <path d="M46 30h28M45 38h30M45 46h30M45 54h30M46 62h28" stroke="currentColor" stroke-width="2.4"/>
+      <path d="M34 50v8a26 26 0 0 0 52 0v-8" fill="none" stroke="currentColor" stroke-width="3"/>
+      <path d="M60 84v18" stroke="currentColor" stroke-width="3"/>
+      <rect x="38" y="102" width="44" height="3.4"/><rect x="48" y="109" width="24" height="2.4"/>
+      <path d="M20 28 10 22M16 44H5M20 60 10 66M100 28l10-6M104 44h11M100 60l10 6" stroke="currentColor" stroke-width="2.4"/>
+    </symbol>
+    <symbol id="i-table" viewBox="0 0 120 120">
+      <path d="M20 76a40 40 0 0 1 80 0z" fill="none" stroke="currentColor" stroke-width="3"/>
+      <path d="M36 62a26 26 0 0 1 20-20" fill="none" stroke="currentColor" stroke-width="2.4"/>
+      <circle cx="60" cy="31" r="5" fill="none" stroke="currentColor" stroke-width="3"/>
+      <rect x="8" y="80" width="104" height="3.6"/><rect x="26" y="88" width="68" height="3"/>
+      <rect x="40" y="95" width="40" height="2.6"/><rect x="52" y="101" width="16" height="2.2"/>
+    </symbol>
+    <symbol id="i-photo" viewBox="0 0 120 120">
+      <g transform="rotate(-7 60 60)">
+        <rect x="36" y="8" width="48" height="104" fill="none" stroke="currentColor" stroke-width="3"/>
+        <rect x="43" y="15" width="34" height="26"/>
+        <rect x="43" y="47" width="34" height="26" fill="none" stroke="currentColor" stroke-width="2.4"/>
+        <rect x="43" y="79" width="34" height="26" fill="none" stroke="currentColor" stroke-width="2.4"/>
+        <path d="M60 50c1 7 3 9 9 10-6 1-8 3-9 10-1-7-3-9-9-10 6-1 8-3 9-10z"/>
+        <path d="M49 100a11 11 0 0 1 22 0" fill="none" stroke="currentColor" stroke-width="2.4"/>
+      </g>
+      <path d="M20 26c1 6 2 7 8 8-6 1-7 2-8 8-1-6-2-7-8-8 6-1 7-2 8-8zM102 78c.8 5 1.800 6 6 6.800-4.200.8-5.200 1.800-6 6.800-.8-5-1.800-6-6-6.800 4.200-.8 5.200-1.800 6-6.800z"/>
+    </symbol>
+    <symbol id="i-crown" viewBox="0 0 120 120">
+      <path d="M22 84 14 40l25 20 21-34 21 34 25-20-8 44z" fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="miter"/>
+      <circle cx="14" cy="36" r="4"/><circle cx="60" cy="21" r="4.600"/><circle cx="106" cy="36" r="4"/>
+      <path d="M60 52c1 7 3 9 9 10-6 1-8 3-9 10-1-7-3-9-9-10 6-1 8-3 9-10z"/>
+      <rect x="20" y="90" width="80" height="3.600"/><rect x="32" y="97" width="56" height="3"/>
+      <rect x="44" y="103.500" width="32" height="2.600"/>
+    </symbol>
+    <symbol id="i-whatsapp" viewBox="0 0 24 24">
+      <path d="M12 2a10 10 0 0 0-8.600 15.100L2 22l5-1.300A10 10 0 1 0 12 2zm0 18.200a8.200 8.200 0 0 1-4.200-1.200l-.3-.2-3 .8.800-2.900-.2-.3A8.200 8.200 0 1 1 12 20.200zm4.500-6.100c-.2-.1-1.500-.7-1.700-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.200-.3.200-.5.100a6.800 6.800 0 0 1-3.300-2.900c-.3-.4 0-.5.200-.8l.4-.5.200-.4v-.5l-.8-1.800c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.5.100-.7.300-.2.300-.9.900-.9 2.100s.9 2.400 1 2.600c.1.200 1.800 2.700 4.300 3.800 2.100.9 2.500.7 3 .7.500-.1 1.500-.6 1.700-1.200.200-.6.200-1.100.1-1.200-.1-.1-.2-.2-.5-.2z"/>
+    </symbol>
+    <symbol id="i-instagram" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="18" height="18" rx="5" fill="none" stroke="currentColor" stroke-width="1.800"/>
+      <circle cx="12" cy="12" r="4.200" fill="none" stroke="currentColor" stroke-width="1.800"/>
+      <circle cx="17.200" cy="6.800" r="1.200"/>
+    </symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24">
+      <path d="M5 12h13M13 7l5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.800"/>
+    </symbol>
+  </svg>
+
+  <header class="nav" id="nav">
+    <a class="brand" href="/" aria-label="The Grand Riviera, home">
+      <svg class="brand-mark" aria-hidden="true"><use href="#sunmark"/></svg>
+      <span class="brand-name">The Grand Riviera</span>
+    </a>
+    <div class="clock" aria-hidden="true">
+      <span class="clock-track"><i id="clockBar"></i></span>
+      <span id="clockTime">6:00 PM</span>
+    </div>
+    <nav class="nav-links" id="navLinks" aria-label="Main">
+%%NAV%%
+    </nav>
+    <a class="btn btn-small nav-buy" href="https://www.passly.co.ke/PROM26" target="_blank" rel="noopener">Get tickets</a>
+    <button class="menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="navLinks" aria-label="Open menu"><i></i><i></i></button>
+  </header>
+
+  <main id="main">
+%%CONTENT%%
+  </main>
+
+  <section class="share-strip" aria-label="Share The Grand Riviera">
+    <p class="share-strip-line">Who are you <em>bringing?</em></p>
+    <div class="share-strip-actions">
+      <a class="btn share-wa" href="%%WHATSAPP%%" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-whatsapp"/></svg><span>Send on WhatsApp</span></a>
+      <a class="btn share-ig" href="https://www.instagram.com/the.grand.riviera/" target="_blank" rel="noopener"><svg aria-hidden="true"><use href="#i-instagram"/></svg><span>Follow on Instagram</span></a>
+    </div>
+  </section>
+
+  <footer class="footer">
+    <div class="footer-brand">
+      <svg aria-hidden="true"><use href="#sunmark"/></svg>
+      <p>The Grand Riviera Prom '26</p>
+    </div>
+    <ul class="footer-links">
+      <li><a href="https://www.instagram.com/the.grand.riviera/" target="_blank" rel="noopener">Instagram</a></li>
+      <li><a href="https://www.google.com/maps/search/?api=1&amp;query=The%20Event%20Space%20Westlands%20Nairobi" target="_blank" rel="noopener">Directions</a></li>
+      <li><button class="link-btn" type="button" data-open="enquiry">Contact the committee</button></li>
+      <li><a href="/privacy">Privacy</a></li>
+      <li><a href="/committee" rel="nofollow">Committee</a></li>
+    </ul>
+  </footer>
+
+  <div class="buybar" id="buybar">
+    <p><strong>From KES 2,400</strong><span>Early bird tickets</span></p>
+    <a class="btn btn-foil btn-small" href="https://www.passly.co.ke/PROM26" target="_blank" rel="noopener">Get tickets</a>
+  </div>
+
+  <dialog class="modal" id="enquiry" aria-labelledby="enq-title">
+    <form class="form" id="enquiryForm" novalidate>
+      <button class="modal-close" type="button" data-close aria-label="Close"><i></i><i></i></button>
+      <p class="eyebrow">The committee</p>
+      <h2 id="enq-title">Leave <em>a note</em></h2>
+      <p class="form-help">Buying for a group, or have a question? Leave your details and the committee will follow up.</p>
+      <label class="field"><span>Full name</span><input name="name" maxlength="100" required autocomplete="name"></label>
+      <label class="field"><span>Email</span><input name="email" type="email" maxlength="160" required autocomplete="email"></label>
+      <div class="field-row">
+        <label class="field"><span>Phone (optional)</span><input name="phone" type="tel" maxlength="30" autocomplete="tel"></label>
+        <label class="field"><span>Guests</span><input name="guests" type="number" min="1" max="50" value="1" inputmode="numeric"></label>
+      </div>
+      <label class="field"><span>Message (optional)</span><textarea name="message" rows="3" maxlength="800"></textarea></label>
+      <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+      <button class="btn btn-foil" type="submit"><span>Send to the committee</span></button>
+      <p class="form-msg" role="status"></p>
+      <p class="form-fine">See how we use your details in our <a href="/privacy">privacy note</a>.</p>
+    </form>
+  </dialog>
+
+  %%SCRIPTS%%
+  <script src="/js/sky.js" defer></script>
+  <script src="/js/site.js" defer></script>
+</body>
+</html>

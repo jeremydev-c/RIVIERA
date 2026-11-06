@@ -1,0 +1,19 @@
+<section class="invite" aria-label="Make your invite card">
+  <div class="invite-grid">
+    <form class="card form" id="inviteForm" novalidate>
+      <h2>Make your card</h2>
+      <p class="form-help">Type your name and your card appears straight away. It is made on your own phone, so we never see or save your name.</p>
+      <label class="field"><span>Your name</span><input name="name" maxlength="28" autocomplete="given-name" required></label>
+      <button class="btn btn-foil" type="submit"><span id="inviteAction">Save your card</span></button>
+      <p class="form-msg" role="status"></p>
+      <ol class="invite-steps">
+        <li>Save or share your card.</li>
+        <li>Post it to your Instagram or WhatsApp status.</li>
+        <li><span>Tag <a href="https://www.instagram.com/the.grand.riviera/" target="_blank" rel="noopener">@the.grand.riviera</a>.</span></li>
+      </ol>
+    </form>
+    <figure class="invite-preview">
+      <canvas id="inviteCanvas" width="1080" height="1920" role="img" aria-label="Your personal gold invitation to The Grand Riviera"></canvas>
+    </figure>
+  </div>
+</section>

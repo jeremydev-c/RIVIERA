@@ -1,0 +1,23 @@
+<section class="table" aria-label="The dish board">
+  <div class="table-grid">
+        <ol class="board" id="board" aria-live="polite"></ol>
+        <form class="card form" id="dishForm" novalidate>
+          <h3>Suggest a dish</h3>
+          <p class="form-help">The committee reviews each suggestion before it joins the board.</p>
+          <label class="field"><span>The dish</span><input name="name" maxlength="60" required autocomplete="off"></label>
+          <fieldset class="field">
+            <legend>Course</legend>
+            <div class="chips">
+              <label><input type="radio" name="category" value="Mains" required><span>Mains</span></label>
+              <label><input type="radio" name="category" value="Sides"><span>Sides</span></label>
+              <label><input type="radio" name="category" value="Desserts"><span>Desserts</span></label>
+              <label><input type="radio" name="category" value="Drinks"><span>Drinks</span></label>
+            </div>
+          </fieldset>
+          <label class="field"><span>Details (optional)</span><input name="note" maxlength="120" autocomplete="off"></label>
+          <input class="hp" name="website" tabindex="-1" autocomplete="off" aria-hidden="true">
+          <button class="btn btn-foil" type="submit"><span>Put it on the board</span></button>
+          <p class="form-msg" role="status"></p>
+        </form>
+      </div>
+</section>

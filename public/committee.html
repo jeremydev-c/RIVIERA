@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Committee · The Grand Riviera</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/site.css">
+  <link rel="stylesheet" href="/css/committee.css">
+</head>
+<body class="committee">
+  <form class="login card form" id="login" hidden>
+    <img src="/img/favicon.svg" alt="" width="64" height="64">
+    <h1>The Committee</h1>
+    <label class="field"><span>Password</span><input type="password" name="password" required autocomplete="current-password"></label>
+    <button class="btn btn-foil" type="submit"><span>Log in</span></button>
+    <p class="form-msg" role="status"></p>
+  </form>
+
+  <div id="panel" hidden>
+    <header class="c-head">
+      <p class="c-brand">The Grand Riviera <em>Committee</em></p>
+      <div>
+        <a href="/" class="c-link">View site</a>
+        <button class="c-link" id="logout" type="button">Log out</button>
+      </div>
+    </header>
+
+    <ul class="stats" id="stats"></ul>
+
+    <section class="c-section">
+      <h2>Royal Court stage</h2>
+      <p class="c-help">Controls what guests see. Move forward when each step is ready.</p>
+      <div class="stage-pick" id="stagePick" role="radiogroup" aria-label="Royal Court stage"></div>
+      <div class="codes">
+        <label class="check"><input type="checkbox" id="requireCodes"><span>Require a ballot code to vote. Recommended on the night, because it stops one person voting many times.</span></label>
+        <form id="codeForm" class="code-row">
+          <label class="field"><span>Make more codes</span><input name="count" type="number" min="1" max="2000" value="200"></label>
+          <button class="btn btn-small" type="submit">Generate</button>
+          <a class="c-link" href="/api/admin/codes.csv">Download codes (<span id="codeCount">0</span>)</a>
+        </form>
+      </div>
+    </section>
+
+    <section class="c-section">
+      <h2>Nominations</h2>
+      <p class="c-help">Check every photo and confirm consent. Approved entries form the public ballot once the stage moves on.</p>
+      <div class="noms" id="noms"></div>
+    </section>
+
+    <section class="c-section">
+      <h2>Dish board</h2>
+      <p class="c-help">New suggestions wait here. Approve to put them on the public board.</p>
+      <div class="rows" id="dishes"></div>
+    </section>
+
+    <section class="c-section">
+      <h2>Lineup</h2>
+      <p class="c-help">Add a name, then reveal it when you are ready to break the seal.</p>
+      <div class="rows" id="lineup"></div>
+    </section>
+
+    <section class="c-section">
+      <h2>Enquiries</h2>
+      <p class="c-help"><a class="c-link" href="/api/admin/enquiries.csv">Download as spreadsheet</a></p>
+      <div class="rows" id="enquiries"></div>
+    </section>
+  </div>
+  <script src="/js/committee.js" defer></script>
+</body>
+</html>
