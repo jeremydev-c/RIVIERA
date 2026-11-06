@@ -4,7 +4,7 @@ The website for The Grand Riviera Prom '26: tickets, the live Royal Court vote, 
 
 ## Run it on your computer
 
-Requires [Node.js](https://nodejs.org) 22.5 or newer.
+Requires [Node.js](https://nodejs.org) 22 or newer.
 
 ```bash
 npm install
@@ -14,7 +14,7 @@ npm install
 npm start
 ```
 
-Then open http://localhost:3000. The committee dashboard is at `/committee`, and its password is in the `.env` file.
+Then open http://localhost:3000. The committee dashboard is at `/committee`, and its password is in the `.env` file. Without `MONGODB_URI`, the site uses a private local database in `data/`.
 
 To run the automated tests:
 
@@ -22,20 +22,23 @@ To run the automated tests:
 npm test
 ```
 
-## Put it online
+## Put it online with Vercel
 
-Use any host that runs Node.js and offers a persistent disk (Render, Railway, Fly.io or a VPS). The disk matters: it holds the votes, nominations and portraits.
+The site stores everything in MongoDB, in its own database called `grand_riviera`, so it stays apart from anything else on your cluster.
 
-| Setting | Value |
+1. In MongoDB Atlas, open **Network Access** and allow `0.0.0.0/0`. Vercel has no fixed address. Use a long database password.
+2. In Vercel, import this GitHub repository. Leave the framework as **Other**.
+3. Under **Environment Variables**, add:
+
+| Name | Value |
 | --- | --- |
-| Build command | `npm install --omit=dev` |
-| Start command | `npm start` |
-| `NODE_ENV` | `production` |
-| `ADMIN_PASSWORD` | A long password of your own |
-| `SITE_URL` | Your final address, such as `https://thegrandriviera.co.ke` |
-| `DATA_DIR` | The path of your persistent disk |
+| `MONGODB_URI` | Your MongoDB connection string |
+| `ADMIN_PASSWORD` | A long password of your own, for `/committee` |
+| `SITE_URL` | Optional. Your final address, such as `https://thegrandriviera.co.ke` |
 
-Do not upload `.env` or the `data` folder. Back up the `DATA_DIR` folder on the day of the event.
+4. Deploy. The database and its starting data are created on the first visit.
+
+Vercel's free Hobby plan is for non-commercial use only, so a paid event may need the Pro plan. Never commit `.env` or your connection string.
 
 ## Change the details
 
@@ -56,7 +59,8 @@ Once the ballot is published, each nominee's card has a Share button. It sends a
 
 ## How it is built
 
-- `server/` is the Express API, with SQLite for storage and sharp to clean uploaded photos.
+- `server/` is the Express API, with MongoDB for storage and sharp to clean uploaded photos.
+- `api/index.js` is the entry point Vercel runs.
 - `views/` holds the HTML for each page, which the server joins to the shared layout.
 - `public/` is hand-written CSS and JavaScript with no build step.
 - `public/js/sky.js` draws the animated hero.

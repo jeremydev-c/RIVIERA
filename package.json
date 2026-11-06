@@ -5,22 +5,24 @@
   "description": "The Grand Riviera Prom '26. Friday 4 December 2026, The Event Space, Westlands, Nairobi.",
   "type": "module",
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22"
   },
   "scripts": {
-    "start": "node --disable-warning=ExperimentalWarning server/index.js",
-    "dev": "node --disable-warning=ExperimentalWarning --watch server/index.js",
-    "test": "node --disable-warning=ExperimentalWarning --test server/*.test.js",
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test --test-force-exit server/*.test.js",
     "og": "node scripts/make-images.js"
   },
   "dependencies": {
     "compression": "^1.8.2",
     "express": "^4.22.3",
+    "mongodb": "^7.8.0",
     "multer": "^2.5.0",
     "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@fontsource-variable/bodoni-moda": "^5.3.0",
-    "@fontsource-variable/jost": "^5.3.0"
+    "@fontsource-variable/jost": "^5.3.0",
+    "mongodb-memory-server-core": "^11.3.0"
   }
 }

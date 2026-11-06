@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openDb, getSetting, setSetting } from './db.js';
+import { openDb, getSetting, setSetting, DEFAULT_DB } from './db.js';
 import { PAGES, renderPage } from './pages.js';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
@@ -15,6 +15,7 @@ const CATEGORIES = ['king', 'queen'];
 const COURSES = ['Mains', 'Sides', 'Desserts', 'Drinks'];
 const SESSION_MS = 12 * 60 * 60 * 1000;
 const COOKIE_YEAR = 365 * 24 * 60 * 60 * 1000;
+const UPLOAD_LIMIT = 4 * 1024 * 1024; // Vercel rejects request bodies over 4.5 MB.
 
 const clean = (value, max) =>
   String(value ?? '').replace(/[\u0000-\u001f\u007f]+/g, ' ').trim().slice(0, max);
@@ -22,6 +23,7 @@ const cleanBlock = (value, max) =>
   String(value ?? '').replace(/[\u0000-\u0009\u000b-\u001f\u007f]+/g, ' ').trim().slice(0, max);
 const isEmail = (value) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value) && value.length <= 160;
 const sha = (value) => crypto.createHash('sha256').update(value).digest();
+const newId = () => crypto.randomBytes(9).toString('hex');
 const parseCookies = (req) =>
   Object.fromEntries((req.headers.cookie || '').split(';').map((c) => c.trim().split('=')).filter((c) => c.length === 2));
 
@@ -32,36 +34,52 @@ const csvCell = (value) => {
   return `"${safe.replace(/"/g, '""')}"`;
 };
 
-function rateLimiter() {
-  const hits = new Map();
-  const sweep = setInterval(() => {
-    const now = Date.now();
-    for (const [key, entry] of hits) if (entry.resetAt < now) hits.delete(key);
-  }, 60_000);
-  sweep.unref();
-  return (name, max, windowMs) => (req, res, next) => {
-    const key = `${name}:${req.ip}`;
-    const now = Date.now();
-    const entry = hits.get(key);
-    if (!entry || entry.resetAt < now) {
-      hits.set(key, { count: 1, resetAt: now + windowMs });
-      return next();
-    }
-    entry.count += 1;
-    if (entry.count > max) return res.status(429).json({ error: 'Too many attempts. Please wait a few minutes.' });
-    next();
-  };
-}
+// Passes failures in async routes to the error handler below.
+const wrap = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
-export function createApp({ dataDir, adminPassword, siteUrl = '', secureCookies = false }) {
-  const db = openDb(dataDir);
-  const portraitsDir = path.join(dataDir, 'portraits');
-  const limit = rateLimiter();
-  const sessions = new Map();
+const timestamp = (date) => (date ? date.toISOString().slice(0, 16).replace('T', ' ') : '');
+const withId = ({ _id, ...doc }) => ({ id: _id, ...doc });
+const bytes = (binary) => Buffer.from(binary.buffer.subarray(0, binary.position));
+
+export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, siteUrl = '', secureCookies = false }) {
+  const { db, close } = await openDb(mongoUri, dbName);
+  const collection = (name) => db.collection(name);
   const upload = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+    limits: { fileSize: UPLOAD_LIMIT, files: 1 },
   });
+  const receivePortrait = (req, res) => new Promise((resolve, reject) => {
+    upload.single('portrait')(req, res, (error) => (error ? reject(error) : resolve()));
+  });
+
+  // Counts live in the database, because each request may reach a different server.
+  const limit = (name, max, windowMs) => wrap(async (req, res, next) => {
+    const now = Date.now();
+    const _id = `${name}:${req.ip}:${Math.floor(now / windowMs)}`;
+    let hits = 0;
+    try {
+      const entry = await collection('limits').findOneAndUpdate(
+        { _id },
+        { $inc: { hits: 1 }, $setOnInsert: { expires: new Date(now + windowMs) } },
+        { upsert: true, returnDocument: 'after' },
+      );
+      hits = entry.hits;
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+    }
+    if (hits > max) return res.status(429).json({ error: 'Too many attempts. Please wait a few minutes.' });
+    next();
+  });
+
+  // The login is a signed cookie, so it works on any server without being stored.
+  const sign = (expires) => crypto.createHmac('sha256', `riviera-session:${adminPassword}`).update(String(expires)).digest('hex');
+  const validSession = (token = '') => {
+    const [expires, signature = ''] = token.split('.');
+    const expected = sign(expires);
+    return signature.length === expected.length
+      && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+      && Number(expires) > Date.now();
+  };
 
   const app = express();
   app.set('trust proxy', 1);
@@ -92,19 +110,21 @@ export function createApp({ dataDir, adminPassword, siteUrl = '', secureCookies 
 
   const origin = (req) => siteUrl || `${req.protocol}://${req.get('host')}`;
 
-  const ballot = () =>
-    db.prepare("SELECT id, name, category, photo FROM nominations WHERE status = 'approved' ORDER BY name").all();
+  const ballot = async () =>
+    (await collection('nominations').find({ status: 'approved' }, { projection: { name: 1, category: 1, photo: 1 } })
+      .sort({ name: 1 }).toArray()).map(withId);
 
-  const results = () => {
+  const voteCounts = async () => Object.fromEntries(
+    (await collection('votes').aggregate([{ $group: { _id: '$nominee_id', votes: { $sum: 1 } } }]).toArray())
+      .map((row) => [row._id, row.votes]),
+  );
+
+  const results = async () => {
+    const [nominees, counts] = await Promise.all([ballot(), voteCounts()]);
     const out = {};
     for (const category of CATEGORIES) {
-      const rows = db.prepare(
-        `SELECT n.id, n.name, n.photo, COUNT(v.voter) AS votes
-         FROM nominations n LEFT JOIN votes v ON v.nominee_id = n.id AND v.category = n.category
-         WHERE n.status = 'approved' AND n.category = ?
-         GROUP BY n.id ORDER BY votes DESC`,
-      ).all(category);
-      const top = rows[0]?.votes ?? 0;
+      const rows = nominees.filter((n) => n.category === category).map((n) => ({ ...n, votes: counts[n.id] ?? 0 }));
+      const top = Math.max(0, ...rows.map((r) => r.votes));
       out[category] = top > 0
         ? rows.filter((r) => r.votes === top).map(({ id, name, photo }) => ({ id, name, photo }))
         : [];
@@ -112,38 +132,56 @@ export function createApp({ dataDir, adminPassword, siteUrl = '', secureCookies 
     return out;
   };
 
-  const dishesFor = (who) =>
-    db.prepare(
-      `SELECT d.id, d.name, d.category, d.note,
-              d.base_count + (SELECT COUNT(*) FROM backs b WHERE b.dish_id = d.id) AS count,
-              EXISTS (SELECT 1 FROM backs b WHERE b.dish_id = d.id AND b.visitor = ?) AS backed
-       FROM dishes d WHERE d.status = 'approved' ORDER BY count DESC, d.name`,
-    ).all(who).map((d) => ({ ...d, backed: Boolean(d.backed) }));
+  const backCounts = async () => Object.fromEntries(
+    (await collection('backs').aggregate([{ $group: { _id: '$dish_id', backs: { $sum: 1 } } }]).toArray())
+      .map((row) => [row._id, row.backs]),
+  );
+
+  const dishesFor = async (who) => {
+    const [dishes, counts, mine] = await Promise.all([
+      collection('dishes').find({ status: 'approved' }).toArray(),
+      backCounts(),
+      collection('backs').find({ visitor: who }, { projection: { dish_id: 1 } }).toArray(),
+    ]);
+    const backed = new Set(mine.map((b) => b.dish_id));
+    return dishes
+      .map((d) => ({
+        id: d._id, name: d.name, category: d.category, note: d.note,
+        count: d.base_count + (counts[d._id] ?? 0), backed: backed.has(d._id),
+      }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  };
 
   // ---- Public API ----------------------------------------------------------
 
-  app.get('/api/state', visitor, (req, res) => {
-    const stage = getSetting(db, 'stage');
-    const requireCodes = getSetting(db, 'require_codes') === '1';
+  app.get('/api/state', visitor, wrap(async (req, res) => {
+    const [stage, requireCodes] = await Promise.all([getSetting(db, 'stage'), getSetting(db, 'require_codes')]);
     const myVotes = {};
     if (!requireCodes) {
-      for (const row of db.prepare('SELECT category, nominee_id FROM votes WHERE voter = ?').all(req.visitor)) {
+      for (const row of await collection('votes').find({ voter: req.visitor }).toArray()) {
         myVotes[row.category] = row.nominee_id;
       }
     }
+    const [nominees, crowned, lineup, dishes] = await Promise.all([
+      stage === 'nominations' ? [] : ballot(),
+      stage === 'crowned' ? results() : null,
+      collection('lineup').find().sort({ position: 1 }).toArray(),
+      dishesFor(req.visitor),
+    ]);
     res.set('Cache-Control', 'no-store').json({
       stage,
-      requireCodes,
-      nominees: stage === 'nominations' ? [] : ballot(),
-      results: stage === 'crowned' ? results() : null,
+      requireCodes: Boolean(requireCodes),
+      nominees,
+      results: crowned,
       myVotes,
-      lineup: db.prepare('SELECT id, position, revealed, name, role FROM lineup ORDER BY position').all()
-        .map((a) => (a.revealed ? { ...a, revealed: true } : { id: a.id, position: a.position, revealed: false })),
-      dishes: dishesFor(req.visitor),
+      lineup: lineup.map((a) => (a.revealed
+        ? { id: a._id, position: a.position, revealed: true, name: a.name, role: a.role }
+        : { id: a._id, position: a.position, revealed: false })),
+      dishes,
     });
-  });
+  }));
 
-  app.post('/api/enquiry', limit('enquiry', 6, 10 * 60_000), (req, res) => {
+  app.post('/api/enquiry', limit('enquiry', 6, 10 * 60_000), wrap(async (req, res) => {
     if (req.body.website) return res.json({ ok: true });
     const name = clean(req.body.name, 100);
     const email = clean(req.body.email, 160);
@@ -152,98 +190,112 @@ export function createApp({ dataDir, adminPassword, siteUrl = '', secureCookies 
     const guests = Math.min(Math.max(Number.parseInt(req.body.guests, 10) || 1, 1), 50);
     if (!name) return res.status(400).json({ error: 'Please add your name.' });
     if (!isEmail(email)) return res.status(400).json({ error: 'Please add a valid email address.' });
-    db.prepare('INSERT INTO enquiries (name, email, phone, guests, message) VALUES (?, ?, ?, ?, ?)')
-      .run(name, email, phone, guests, message);
+    await collection('enquiries').insertOne({ _id: newId(), name, email, phone, guests, message, created_at: new Date() });
     res.status(201).json({ ok: true });
-  });
+  }));
 
-  app.post('/api/nominate', limit('nominate', 8, 10 * 60_000), (req, res) => {
-    upload.single('portrait')(req, res, async (uploadError) => {
-      if (uploadError) {
-        const message = uploadError.code === 'LIMIT_FILE_SIZE' ? 'That photo is over 8 MB.' : 'That upload did not work.';
-        return res.status(400).json({ error: message });
-      }
-      if (req.body.website) return res.json({ ok: true });
-      if (getSetting(db, 'stage') !== 'nominations') {
-        return res.status(409).json({ error: 'Nominations are closed.' });
-      }
-      const name = clean(req.body.name, 80);
-      const category = req.body.category;
-      if (!name) return res.status(400).json({ error: "Please add the nominee's name." });
-      if (!CATEGORIES.includes(category)) return res.status(400).json({ error: 'Choose Prom King or Prom Queen.' });
-      if (!req.file) return res.status(400).json({ error: 'Please add a portrait.' });
-      if (req.body.consent !== 'on') return res.status(400).json({ error: 'Please confirm you have permission to share this photo.' });
+  app.post('/api/nominate', limit('nominate', 8, 10 * 60_000), wrap(async (req, res) => {
+    try {
+      await receivePortrait(req, res);
+    } catch (error) {
+      const message = error.code === 'LIMIT_FILE_SIZE' ? 'That photo is too large. Please try a smaller one.' : 'That upload did not work.';
+      return res.status(400).json({ error: message });
+    }
+    if (req.body.website) return res.json({ ok: true });
+    if (await getSetting(db, 'stage') !== 'nominations') {
+      return res.status(409).json({ error: 'Nominations are closed.' });
+    }
+    const name = clean(req.body.name, 80);
+    const category = req.body.category;
+    if (!name) return res.status(400).json({ error: "Please add the nominee's name." });
+    if (!CATEGORIES.includes(category)) return res.status(400).json({ error: 'Choose Prom King or Prom Queen.' });
+    if (!req.file) return res.status(400).json({ error: 'Please add a portrait.' });
+    if (req.body.consent !== 'on') return res.status(400).json({ error: 'Please confirm you have permission to share this photo.' });
 
-      const file = `${crypto.randomBytes(12).toString('hex')}.webp`;
-      try {
-        // Re-encoding drops location data and rejects anything that is not an image.
-        await sharp(req.file.buffer, { limitInputPixels: 50_000_000 })
-          .rotate()
-          .resize(800, 1000, { fit: 'cover', position: 'attention' })
-          .webp({ quality: 82 })
-          .toFile(path.join(portraitsDir, file));
-      } catch {
-        return res.status(400).json({ error: 'Please upload a JPG, PNG or WebP photo.' });
-      }
-      db.prepare('INSERT INTO nominations (name, category, nominated_by, reason, photo) VALUES (?, ?, ?, ?, ?)')
-        .run(name, category, clean(req.body.nominated_by, 80), cleanBlock(req.body.reason, 400), file);
-      res.status(201).json({ ok: true });
+    let image;
+    try {
+      // Re-encoding drops location data and rejects anything that is not an image.
+      image = await sharp(req.file.buffer, { limitInputPixels: 50_000_000 })
+        .rotate()
+        .resize(800, 1000, { fit: 'cover', position: 'attention' })
+        .webp({ quality: 82 })
+        .toBuffer();
+    } catch {
+      return res.status(400).json({ error: 'Please upload a JPG, PNG or WebP photo.' });
+    }
+    const _id = newId();
+    await collection('nominations').insertOne({
+      _id, name, category, image, status: 'pending', created_at: new Date(),
+      photo: `${_id}.webp`,
+      nominated_by: clean(req.body.nominated_by, 80),
+      reason: cleanBlock(req.body.reason, 400),
     });
-  });
+    res.status(201).json({ ok: true });
+  }));
 
   // Only approved portraits are public. Pending ones are served through the admin route.
-  app.get('/portraits/:file', (req, res) => {
-    const row = db.prepare("SELECT photo FROM nominations WHERE photo = ? AND status = 'approved'").get(req.params.file);
+  app.get('/portraits/:file', wrap(async (req, res) => {
+    const row = await collection('nominations').findOne({ photo: req.params.file, status: 'approved' }, { projection: { image: 1 } });
     if (!row) return res.sendStatus(404);
-    res.set('Cache-Control', 'public, max-age=3600').sendFile(row.photo, { root: path.resolve(portraitsDir) });
-  });
+    res.set('Cache-Control', 'public, max-age=3600').type('webp').send(bytes(row.image));
+  }));
 
-  app.post('/api/vote', limit('vote', 60, 60_000), visitor, (req, res) => {
-    if (getSetting(db, 'stage') !== 'voting') return res.status(409).json({ error: 'Voting is not open.' });
-    const nominee = db.prepare("SELECT id, category FROM nominations WHERE id = ? AND status = 'approved'")
-      .get(Number(req.body.nomineeId) || 0);
+  // Many guests share the venue's Wi-Fi address, so this limit is deliberately generous.
+  app.post('/api/vote', limit('vote', 900, 60_000), visitor, wrap(async (req, res) => {
+    if (await getSetting(db, 'stage') !== 'voting') return res.status(409).json({ error: 'Voting is not open.' });
+    const nominee = await collection('nominations').findOne(
+      { _id: String(req.body.nomineeId ?? ''), status: 'approved' },
+      { projection: { category: 1 } },
+    );
     if (!nominee) return res.status(404).json({ error: 'That nominee is not on the ballot.' });
 
     let voter = req.visitor;
-    if (getSetting(db, 'require_codes') === '1') {
+    if (await getSetting(db, 'require_codes')) {
       const code = clean(req.body.code, 12).toUpperCase();
-      if (!db.prepare('SELECT code FROM codes WHERE code = ?').get(code)) {
+      if (!await collection('codes').findOne({ _id: code })) {
         return res.status(403).json({ error: 'That ballot code is not valid.' });
       }
       voter = `code:${code}`;
     }
-    const { changes } = db.prepare('INSERT OR IGNORE INTO votes (category, nominee_id, voter) VALUES (?, ?, ?)')
-      .run(nominee.category, nominee.id, voter);
-    if (!changes) return res.status(409).json({ error: 'This ballot has already been cast.' });
-    res.status(201).json({ ok: true, category: nominee.category, nomineeId: nominee.id });
-  });
+    try {
+      await collection('votes').insertOne({
+        _id: `${nominee.category}:${voter}`,
+        category: nominee.category, nominee_id: nominee._id, voter, created_at: new Date(),
+      });
+    } catch (error) {
+      if (error.code === 11000) return res.status(409).json({ error: 'This ballot has already been cast.' });
+      throw error;
+    }
+    res.status(201).json({ ok: true, category: nominee.category, nomineeId: nominee._id });
+  }));
 
-  app.post('/api/dishes', limit('dish', 8, 10 * 60_000), (req, res) => {
+  app.post('/api/dishes', limit('dish', 8, 10 * 60_000), wrap(async (req, res) => {
     if (req.body.website) return res.json({ ok: true });
     const name = clean(req.body.name, 60);
     const category = req.body.category;
     if (!name) return res.status(400).json({ error: 'Name the dish first.' });
     if (!COURSES.includes(category)) return res.status(400).json({ error: 'Choose a course.' });
-    db.prepare('INSERT INTO dishes (name, category, note) VALUES (?, ?, ?)')
-      .run(name, category, clean(req.body.note, 120));
+    await collection('dishes').insertOne({
+      _id: newId(), name, category, note: clean(req.body.note, 120), base_count: 0, status: 'pending', created_at: new Date(),
+    });
     res.status(201).json({ ok: true });
-  });
+  }));
 
-  app.post('/api/dishes/:id/back', limit('back', 120, 60_000), visitor, (req, res) => {
-    const id = Number(req.params.id) || 0;
-    if (!db.prepare("SELECT id FROM dishes WHERE id = ? AND status = 'approved'").get(id)) return res.sendStatus(404);
-    const removed = db.prepare('DELETE FROM backs WHERE dish_id = ? AND visitor = ?').run(id, req.visitor);
-    if (!removed.changes) db.prepare('INSERT INTO backs (dish_id, visitor) VALUES (?, ?)').run(id, req.visitor);
-    res.json({ dishes: dishesFor(req.visitor) });
-  });
+  app.post('/api/dishes/:id/back', limit('back', 900, 60_000), visitor, wrap(async (req, res) => {
+    const id = req.params.id;
+    if (!await collection('dishes').findOne({ _id: id, status: 'approved' })) return res.sendStatus(404);
+    const key = `${id}:${req.visitor}`;
+    const removed = await collection('backs').deleteOne({ _id: key });
+    if (!removed.deletedCount) {
+      await collection('backs').updateOne({ _id: key }, { $set: { dish_id: id, visitor: req.visitor } }, { upsert: true });
+    }
+    res.json({ dishes: await dishesFor(req.visitor) });
+  }));
 
   // ---- Committee -----------------------------------------------------------
 
   const admin = (req, res, next) => {
-    const token = parseCookies(req).gr_admin;
-    const expires = sessions.get(token);
-    if (!expires || expires < Date.now()) {
-      sessions.delete(token);
+    if (!adminPassword || !validSession(parseCookies(req).gr_admin)) {
       return res.status(401).json({ error: 'Please log in.' });
     }
     next();
@@ -253,108 +305,109 @@ export function createApp({ dataDir, adminPassword, siteUrl = '', secureCookies 
     if (!adminPassword) return res.status(503).json({ error: 'ADMIN_PASSWORD has not been set on the server.' });
     const match = crypto.timingSafeEqual(sha(String(req.body.password ?? '')), sha(adminPassword));
     if (!match) return res.status(401).json({ error: 'That password is not right.' });
-    const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, Date.now() + SESSION_MS);
-    res.cookie('gr_admin', token, { httpOnly: true, sameSite: 'strict', secure: secureCookies, maxAge: SESSION_MS });
+    const expires = Date.now() + SESSION_MS;
+    res.cookie('gr_admin', `${expires}.${sign(expires)}`, { httpOnly: true, sameSite: 'strict', secure: secureCookies, maxAge: SESSION_MS });
     res.json({ ok: true });
   });
 
-  app.post('/api/admin/logout', (req, res) => {
-    sessions.delete(parseCookies(req).gr_admin);
-    res.clearCookie('gr_admin').json({ ok: true });
-  });
+  app.post('/api/admin/logout', (req, res) => res.clearCookie('gr_admin').json({ ok: true }));
 
-  const adminData = () => {
-    const tally = db.prepare('SELECT nominee_id, COUNT(*) AS votes FROM votes GROUP BY nominee_id').all();
-    const votes = Object.fromEntries(tally.map((t) => [t.nominee_id, t.votes]));
+  const adminData = async () => {
+    const [stage, requireCodes, enquiries, nominations, votes, dishes, backs, lineup, codeCount] = await Promise.all([
+      getSetting(db, 'stage'),
+      getSetting(db, 'require_codes'),
+      collection('enquiries').find().sort({ created_at: -1 }).toArray(),
+      collection('nominations').find({}, { projection: { image: 0 } }).sort({ created_at: -1 }).toArray(),
+      voteCounts(),
+      collection('dishes').find().toArray(),
+      backCounts(),
+      collection('lineup').find().sort({ position: 1 }).toArray(),
+      collection('codes').countDocuments(),
+    ]);
     return {
-      stage: getSetting(db, 'stage'),
-      requireCodes: getSetting(db, 'require_codes') === '1',
-      enquiries: db.prepare('SELECT * FROM enquiries ORDER BY id DESC').all(),
-      nominations: db.prepare('SELECT * FROM nominations ORDER BY id DESC').all()
-        .map((n) => ({ ...n, votes: votes[n.id] ?? 0 })),
-      dishes: db.prepare(
-        `SELECT d.*, d.base_count + (SELECT COUNT(*) FROM backs b WHERE b.dish_id = d.id) AS count
-         FROM dishes d ORDER BY d.status = 'pending' DESC, count DESC`,
-      ).all(),
-      lineup: db.prepare('SELECT * FROM lineup ORDER BY position').all(),
-      codeCount: db.prepare('SELECT COUNT(*) AS n FROM codes').get().n,
+      stage,
+      requireCodes: Boolean(requireCodes),
+      enquiries: enquiries.map((e) => ({ ...withId(e), created_at: timestamp(e.created_at) })),
+      nominations: nominations.map((n) => ({ ...withId(n), created_at: timestamp(n.created_at), votes: votes[n._id] ?? 0 })),
+      dishes: dishes
+        .map((d) => ({ ...withId(d), created_at: timestamp(d.created_at), count: d.base_count + (backs[d._id] ?? 0) }))
+        .sort((a, b) => (b.status === 'pending') - (a.status === 'pending') || b.count - a.count),
+      lineup: lineup.map(withId),
+      codeCount,
     };
   };
 
-  app.get('/api/admin/data', admin, (req, res) => res.set('Cache-Control', 'no-store').json(adminData()));
+  app.get('/api/admin/data', admin, wrap(async (req, res) => res.set('Cache-Control', 'no-store').json(await adminData())));
 
-  app.get('/api/admin/portraits/:file', admin, (req, res) => {
-    const row = db.prepare('SELECT photo FROM nominations WHERE photo = ?').get(req.params.file);
+  app.get('/api/admin/portraits/:file', admin, wrap(async (req, res) => {
+    const row = await collection('nominations').findOne({ photo: req.params.file }, { projection: { image: 1 } });
     if (!row) return res.sendStatus(404);
-    res.set('Cache-Control', 'no-store').sendFile(row.photo, { root: path.resolve(portraitsDir) });
-  });
+    res.set('Cache-Control', 'no-store').type('webp').send(bytes(row.image));
+  }));
 
-  app.patch('/api/admin/settings', admin, (req, res) => {
+  app.patch('/api/admin/settings', admin, wrap(async (req, res) => {
     const { stage, requireCodes } = req.body;
     if (stage !== undefined) {
       if (!STAGES.includes(stage)) return res.status(400).json({ error: 'Unknown stage.' });
-      setSetting(db, 'stage', stage);
+      await setSetting(db, 'stage', stage);
     }
-    if (requireCodes !== undefined) setSetting(db, 'require_codes', requireCodes ? '1' : '0');
-    res.json(adminData());
-  });
+    if (requireCodes !== undefined) await setSetting(db, 'require_codes', Boolean(requireCodes));
+    res.json(await adminData());
+  }));
 
-  app.patch('/api/admin/nominations/:id', admin, (req, res) => {
+  app.patch('/api/admin/nominations/:id', admin, wrap(async (req, res) => {
     const { status } = req.body;
     if (!['pending', 'approved', 'rejected'].includes(status)) return res.status(400).json({ error: 'Unknown status.' });
-    db.prepare('UPDATE nominations SET status = ? WHERE id = ?').run(status, Number(req.params.id));
-    res.json(adminData());
-  });
+    await collection('nominations').updateOne({ _id: req.params.id }, { $set: { status } });
+    res.json(await adminData());
+  }));
 
-  app.delete('/api/admin/nominations/:id', admin, (req, res) => {
-    const id = Number(req.params.id);
-    const row = db.prepare('SELECT photo FROM nominations WHERE id = ?').get(id);
-    if (row) {
-      db.prepare('DELETE FROM votes WHERE nominee_id = ?').run(id);
-      db.prepare('DELETE FROM nominations WHERE id = ?').run(id);
-      fs.rmSync(path.join(portraitsDir, path.basename(row.photo)), { force: true });
-    }
-    res.json(adminData());
-  });
+  app.delete('/api/admin/nominations/:id', admin, wrap(async (req, res) => {
+    await collection('votes').deleteMany({ nominee_id: req.params.id });
+    await collection('nominations').deleteOne({ _id: req.params.id });
+    res.json(await adminData());
+  }));
 
-  app.patch('/api/admin/dishes/:id', admin, (req, res) => {
+  app.patch('/api/admin/dishes/:id', admin, wrap(async (req, res) => {
     const { status } = req.body;
     if (!['pending', 'approved', 'hidden'].includes(status)) return res.status(400).json({ error: 'Unknown status.' });
-    db.prepare('UPDATE dishes SET status = ? WHERE id = ?').run(status, Number(req.params.id));
-    res.json(adminData());
-  });
+    await collection('dishes').updateOne({ _id: req.params.id }, { $set: { status } });
+    res.json(await adminData());
+  }));
 
-  app.patch('/api/admin/lineup/:id', admin, (req, res) => {
-    db.prepare('UPDATE lineup SET name = ?, role = ?, revealed = ? WHERE id = ?')
-      .run(clean(req.body.name, 80), clean(req.body.role, 80), req.body.revealed ? 1 : 0, Number(req.params.id));
-    res.json(adminData());
-  });
+  app.patch('/api/admin/lineup/:id', admin, wrap(async (req, res) => {
+    await collection('lineup').updateOne({ _id: req.params.id }, {
+      $set: { name: clean(req.body.name, 80), role: clean(req.body.role, 80), revealed: Boolean(req.body.revealed) },
+    });
+    res.json(await adminData());
+  }));
 
-  app.post('/api/admin/codes', admin, (req, res) => {
+  app.post('/api/admin/codes', admin, wrap(async (req, res) => {
     const count = Math.min(Math.max(Number.parseInt(req.body.count, 10) || 0, 1), 2000);
     const alphabet = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
-    const insert = db.prepare('INSERT OR IGNORE INTO codes (code) VALUES (?)');
-    for (let i = 0; i < count; i += 1) {
-      insert.run(Array.from(crypto.randomBytes(7), (b) => alphabet[b % alphabet.length]).join(''));
-    }
-    res.json(adminData());
-  });
+    const codes = Array.from({ length: count }, () => ({
+      _id: Array.from(crypto.randomBytes(7), (b) => alphabet[b % alphabet.length]).join(''),
+    }));
+    await collection('codes').insertMany(codes, { ordered: false }).catch((error) => {
+      if (error.code !== 11000) throw error;
+    });
+    res.json(await adminData());
+  }));
 
-  app.get('/api/admin/codes.csv', admin, (req, res) => {
-    const rows = db.prepare('SELECT code FROM codes ORDER BY code').all();
+  app.get('/api/admin/codes.csv', admin, wrap(async (req, res) => {
+    const rows = await collection('codes').find().sort({ _id: 1 }).toArray();
     res.set({ 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="ballot-codes.csv"' })
-      .send(['code', ...rows.map((r) => r.code)].join('\r\n'));
-  });
+      .send(['code', ...rows.map((r) => r._id)].join('\r\n'));
+  }));
 
-  app.get('/api/admin/enquiries.csv', admin, (req, res) => {
-    const rows = db.prepare('SELECT * FROM enquiries ORDER BY id').all();
+  app.get('/api/admin/enquiries.csv', admin, wrap(async (req, res) => {
+    const rows = await collection('enquiries').find().sort({ created_at: 1 }).toArray();
     const header = ['received', 'name', 'email', 'phone', 'guests', 'message'];
     const body = rows.map((r) =>
-      [r.created_at, r.name, r.email, r.phone, r.guests, r.message].map(csvCell).join(','));
+      [timestamp(r.created_at), r.name, r.email, r.phone, r.guests, r.message].map(csvCell).join(','));
     res.set({ 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="enquiries.csv"' })
       .send([header.join(','), ...body].join('\r\n'));
-  });
+  }));
 
   // ---- Pages ---------------------------------------------------------------
 
@@ -369,40 +422,34 @@ export function createApp({ dataDir, adminPassword, siteUrl = '', secureCookies 
   app.get('/royal-vote', (req, res) => res.redirect(301, '/royal-court'));
 
   // A nominee's own link. In WhatsApp it previews with their portrait.
-  const sharedNominee = (id) => {
-    if (getSetting(db, 'stage') === 'nominations') return null;
-    return db.prepare("SELECT id, name, category, photo FROM nominations WHERE id = ? AND status = 'approved'")
-      .get(Number(id) || 0);
+  const sharedNominee = async (id, projection) => {
+    if (await getSetting(db, 'stage') === 'nominations') return null;
+    return collection('nominations').findOne({ _id: id, status: 'approved' }, { projection });
   };
 
-  app.get('/vote/:id', (req, res) => {
-    const nominee = sharedNominee(req.params.id);
+  app.get('/vote/:id', wrap(async (req, res) => {
+    const nominee = await sharedNominee(req.params.id, { name: 1, category: 1 });
     if (!nominee) return res.redirect(302, '/royal-court');
     const crown = nominee.category === 'king' ? 'Prom King' : 'Prom Queen';
     const page = PAGES.find((p) => p.path === '/royal-court');
     res.type('html').send(renderPage(page, origin(req), {
       title: `Vote for ${nominee.name} · ${crown}`,
       description: `${nominee.name} is on the ballot for ${crown} at The Grand Riviera Prom '26.`,
-      image: `${origin(req)}/vote/${nominee.id}/card.jpg`,
+      image: `${origin(req)}/vote/${nominee._id}/card.jpg`,
       imageAlt: `Portrait of ${nominee.name}`,
-      focus: nominee.id,
+      focus: nominee._id,
     }));
-  });
+  }));
 
-  app.get('/vote/:id/card.jpg', async (req, res, next) => {
-    const nominee = sharedNominee(req.params.id);
+  app.get('/vote/:id/card.jpg', wrap(async (req, res) => {
+    const nominee = await sharedNominee(req.params.id, { image: 1 });
     if (!nominee) return res.sendStatus(404);
-    try {
-      const portrait = await fs.promises.readFile(path.join(portraitsDir, path.basename(nominee.photo)));
-      const card = await sharp(portrait)
-        .resize(1200, 630, { fit: 'contain', background: '#0b0906' })
-        .jpeg({ quality: 84 })
-        .toBuffer();
-      res.set('Cache-Control', 'public, max-age=3600').type('jpeg').send(card);
-    } catch (error) {
-      next(error);
-    }
-  });
+    const card = await sharp(bytes(nominee.image))
+      .resize(1200, 630, { fit: 'contain', background: '#0b0906' })
+      .jpeg({ quality: 84 })
+      .toBuffer();
+    res.set('Cache-Control', 'public, max-age=3600').type('jpeg').send(card);
+  }));
 
   app.get('/grand-riviera.ics', (req, res) => {
     const stamp = new Date().toISOString().replace(/[-:]|\.\d{3}/g, '');
@@ -445,6 +492,6 @@ export function createApp({ dataDir, adminPassword, siteUrl = '', secureCookies 
     res.status(500).json({ error: 'Something went wrong. Please try again.' });
   });
 
-  app.locals.close = () => db.close();
+  app.locals.close = close;
   return app;
 }

@@ -1,8 +1,6 @@
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { MongoMemoryServer } from 'mongodb-memory-server-core';
 import sharp from 'sharp';
 import { createApp } from './app.js';
 
@@ -10,7 +8,7 @@ const PASSWORD = 'test-committee-password';
 let server;
 let base;
 let app;
-let dataDir;
+let mongo;
 let adminCookie;
 
 const send = async (url, { method = 'GET', body, cookie } = {}) => {
@@ -44,16 +42,16 @@ const nominate = async (name, category, overrides = {}) => {
 };
 
 before(async () => {
-  dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'riviera-'));
-  app = createApp({ dataDir, adminPassword: PASSWORD });
+  mongo = await MongoMemoryServer.create();
+  app = await createApp({ mongoUri: mongo.getUri(), adminPassword: PASSWORD });
   await new Promise((resolve) => { server = app.listen(0, resolve); });
   base = `http://127.0.0.1:${server.address().port}`;
 });
 
 after(async () => {
   await new Promise((resolve) => server.close(resolve));
-  app.locals.close();
-  fs.rmSync(dataDir, { recursive: true, force: true });
+  await app.locals.close();
+  await mongo.stop();
 });
 
 test('the page ships its content and share image in the raw HTML', async () => {
@@ -130,6 +128,17 @@ test('admin routes need a login', async () => {
   assert.equal(login.status, 200);
   adminCookie = login.cookie;
   assert.equal((await send('/api/admin/data', { cookie: adminCookie })).status, 200);
+});
+
+test('a login works on any server and cannot be forged', async () => {
+  const other = await createApp({ mongoUri: mongo.getUri(), adminPassword: PASSWORD });
+  const otherServer = await new Promise((resolve) => { const s = other.listen(0, () => resolve(s)); });
+  const url = `http://127.0.0.1:${otherServer.address().port}/api/admin/data`;
+  assert.equal((await fetch(url, { headers: { Cookie: adminCookie } })).status, 200);
+  const forged = adminCookie.replace(/=\d+\./, `=${Date.now() + 9e9}.`);
+  assert.equal((await fetch(url, { headers: { Cookie: forged } })).status, 401);
+  await new Promise((resolve) => otherServer.close(resolve));
+  await other.locals.close();
 });
 
 test('nomination needs portrait and consent, and rejects non-images', async () => {

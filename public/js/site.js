@@ -256,6 +256,22 @@
   let courtKey = '';
   const codedVotes = {};
 
+  // Phone photos can be larger than the host accepts, so they are resized before uploading.
+  const shrinkPhoto = async (file) => {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(bitmap.width * scale);
+      canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => { canvas.toBlob(resolve, 'image/jpeg', .9); });
+      return blob ? new File([blob], 'portrait.jpg', { type: 'image/jpeg' }) : file;
+    } catch {
+      return file;
+    }
+  };
+
   const nominationForm = () => {
     const form = el('form', { class: 'card form', novalidate: '' });
     form.innerHTML = `
@@ -298,6 +314,8 @@
       label.textContent = 'Add a portrait';
     });
     wireForm(form, async (data) => {
+      const portrait = data.get('portrait');
+      if (portrait?.size) data.set('portrait', await shrinkPhoto(portrait));
       await api('/api/nominate', { method: 'POST', body: data });
       return 'Received. The committee will review your nomination.';
     });
