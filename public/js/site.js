@@ -148,7 +148,7 @@
   const GOOGLE_CALENDAR = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent("The Grand Riviera Prom '26")}`
     + '&dates=20261204T150000Z/20261204T210000Z'
     + `&location=${encodeURIComponent('The Event Space, Westlands, Nairobi')}`
-    + `&details=${encodeURIComponent('Dress code: black and metallic gold. Ages 16+. Tickets: https://www.passly.co.ke/PROM26')}`;
+    + `&details=${encodeURIComponent('Dress code: black and metallic gold. Ages 16 and above. Tickets: https://www.passly.co.ke/PROM26')}`;
   const isApple = /iPhone|iPad|Macintosh/.test(navigator.userAgent);
   if (!isApple) {
     $$('[data-calendar]').forEach((link) => {

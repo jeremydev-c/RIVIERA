@@ -495,7 +495,7 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
       'DTSTART:20261204T150000Z', 'DTEND:20261204T210000Z',
       "SUMMARY:The Grand Riviera Prom '26",
       'LOCATION:The Event Space\\, Westlands\\, Nairobi',
-      `DESCRIPTION:Dress code: black and metallic gold. Ages 16+. Tickets: https://www.passly.co.ke/PROM26`,
+      `DESCRIPTION:Dress code: black and metallic gold. Ages 16 and above. Tickets: https://www.passly.co.ke/PROM26`,
       'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:The Grand Riviera is tomorrow', 'TRIGGER:-P1D', 'END:VALARM',
       'END:VEVENT', 'END:VCALENDAR',
     ].join('\r\n');

@@ -11,12 +11,12 @@ export const PAGES = [
   {
     path: '/', view: 'home',
     title: "The Grand Riviera Prom '26 · 4 December, Westlands, Nairobi",
-    description: "Friday 4 December, 6 PM to midnight at The Event Space, Westlands, Nairobi. Food, live music, photobooths and the crowning of Prom King and Queen. Ages 16+. Early bird tickets from KES 2,400.",
+    description: "Friday 4 December, 6 PM to midnight at The Event Space, Westlands, Nairobi. Food, live music, photobooths and the crowning of Prom King and Queen. Ages 16 and above. Early bird tickets from KES 2,400.",
   },
   {
     path: '/tickets', view: 'tickets', label: 'Tickets',
     title: "Tickets · The Grand Riviera Prom '26",
-    description: 'Early bird tickets from KES 2,400. Friday 4 December, 6 PM to midnight at The Event Space, Westlands. Ages 16+.',
+    description: 'Early bird tickets from KES 2,400. Friday 4 December, 6 PM to midnight at The Event Space, Westlands. Ages 16 and above.',
     eyebrow: 'Tickets',
     heading: 'Early bird <em>tickets are out</em>',
     blurb: 'Limited, and released in waves.',
