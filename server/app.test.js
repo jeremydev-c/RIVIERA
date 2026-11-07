@@ -2,6 +2,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { MongoMemoryServer } from 'mongodb-memory-server-core';
 import sharp from 'sharp';
+import QRCode from 'qrcode';
 import { createApp } from './app.js';
 
 const PASSWORD = 'test-committee-password';
@@ -206,23 +207,37 @@ test('full royal court: moderation, voting once, codes, crowning', async () => {
   assert.equal((await nominate('Late', 'king')).status, 409);
 
   await send('/api/admin/settings', { method: 'PATCH', cookie, body: { stage: 'voting' } });
-  const voter = (await send('/api/state')).cookie;
-  const vote = await send('/api/vote', { method: 'POST', cookie: voter, body: { nomineeId: byName.Baraka.id } });
-  assert.equal(vote.status, 201);
-  const again = await send('/api/vote', { method: 'POST', cookie: voter, body: { nomineeId: byName.Otieno.id } });
-  assert.equal(again.status, 409);
-  assert.equal((await send('/api/state', { cookie: voter })).data.myVotes.king, byName.Baraka.id);
+  const noCode = await send('/api/vote', { method: 'POST', body: { nomineeId: byName.Baraka.id } });
+  assert.equal(noCode.status, 403);
+  const wrong = await send('/api/vote', { method: 'POST', body: { nomineeId: byName.Baraka.id, code: 'WRONG' } });
+  assert.equal(wrong.status, 403);
 
   await send('/api/admin/codes', { method: 'POST', cookie, body: { count: 2 } });
-  await send('/api/admin/settings', { method: 'PATCH', cookie, body: { requireCodes: true } });
-  const noCode = await send('/api/vote', { method: 'POST', cookie: voter, body: { nomineeId: byName.Wanjiru.id, code: 'WRONG' } });
-  assert.equal(noCode.status, 403);
   const csv = (await send('/api/admin/codes.csv', { cookie })).data;
   const code = csv.split('\r\n')[1];
-  const coded = await send('/api/vote', { method: 'POST', body: { nomineeId: byName.Wanjiru.id, code: code.toLowerCase() } });
-  assert.equal(coded.status, 201);
-  const reused = await send('/api/vote', { method: 'POST', body: { nomineeId: byName.Wanjiru.id, code } });
-  assert.equal(reused.status, 409);
+  assert.equal((await send('/api/vote', { method: 'POST', body: { nomineeId: byName.Baraka.id, code: code.toLowerCase() } })).status, 201);
+  const again = await send('/api/vote', { method: 'POST', body: { nomineeId: byName.Otieno.id, code } });
+  assert.equal(again.status, 409);
+  assert.match(again.data.error, /already voted for Prom King/);
+  assert.equal((await send('/api/vote', { method: 'POST', body: { nomineeId: byName.Wanjiru.id, code } })).status, 201);
+
+  const card = (await send(`/api/state?code=${code.toLowerCase()}`)).data;
+  assert.deepEqual(card.code, { value: code, valid: true });
+  assert.equal(card.myVotes.king, byName.Baraka.id);
+  assert.equal(card.myVotes.queen, byName.Wanjiru.id);
+  assert.equal((await send('/api/state?code=NOPE')).data.code.valid, false);
+
+  const committee = (await send('/api/admin/data', { cookie })).data;
+  assert.equal(committee.codeCount, 2);
+  assert.equal(committee.cardsUsed, 1);
+  const locked = await fetch(`${base}/committee/cards`, { redirect: 'manual' });
+  assert.equal(locked.headers.get('location'), '/committee');
+  const sheet = await send('/committee/cards', { cookie });
+  assert.match(sheet.data, new RegExp(`class="code">${code}<`));
+  const expectedQr = await QRCode.toString(`${base}/royal-court?code=${code}`, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' });
+  assert.ok(sheet.data.includes(expectedQr), 'the QR code opens the vote with this card filled in');
+  assert.equal((sheet.data.match(/<article class="card">/g) ?? []).length, 2);
+  assert.match(sheet.data, /<svg[^>]*viewBox="0 0 \d+ \d+"/);
 
   await send('/api/admin/settings', { method: 'PATCH', cookie, body: { stage: 'crowned' } });
   const { results } = (await send('/api/state')).data;

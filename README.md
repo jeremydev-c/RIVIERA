@@ -53,7 +53,7 @@ Vercel's free Hobby plan is for non-commercial use only, so a paid event may nee
 3. **Live vote open.** Open this on the night.
 4. **Crowned.** The winners appear on the site. A tie shows all tied nominees.
 
-Without ballot codes, each browser gets one vote, and someone determined could vote again in a private window. For a vote that cannot be stuffed, generate codes, print one for each guest, and tick **Require a ballot code**.
+Every vote needs a ballot card. Under **Ballot cards**, make one per guest, then **Print all cards** (8 per A4 page) and hand them out at the door. Guests scan the QR code to open the vote with their code filled in. Each card votes once for King and once for Queen, so nobody can vote twice.
 
 Once the ballot is published, each nominee's card has a Share button. It sends a link such as `/vote/12`, which previews in WhatsApp with their portrait.
 

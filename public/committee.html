@@ -30,17 +30,27 @@
     <ul class="stats" id="stats"></ul>
 
     <section class="c-section">
-      <h2>Royal Court stage</h2>
-      <p class="c-help">Controls what guests see. Move forward when each step is ready.</p>
-      <div class="stage-pick" id="stagePick" role="radiogroup" aria-label="Royal Court stage"></div>
-      <div class="codes">
-        <label class="check"><input type="checkbox" id="requireCodes"><span>Require a ballot code to vote. Recommended on the night, because it stops one person voting many times.</span></label>
-        <form id="codeForm" class="code-row">
-          <label class="field"><span>Make more codes</span><input name="count" type="number" min="1" max="2000" value="200"></label>
-          <button class="btn btn-small" type="submit">Generate</button>
-          <a class="c-link" href="/api/admin/codes.csv">Download codes (<span id="codeCount">0</span>)</a>
-        </form>
+      <h2>Royal Court</h2>
+      <div class="vote-panel">
+        <p class="vote-state" id="voteState"></p>
+        <p class="c-help" id="voteHint"></p>
+        <div class="vote-actions" id="voteActions"></div>
       </div>
+      <ul class="stats" id="voteStats"></ul>
+
+      <h3 class="c-sub">Ballot cards</h3>
+      <p class="c-help">Every vote needs a card. Print one per guest and hand them out at the door. Guests scan the QR code, and the vote opens with their code already filled in. Each card votes once for King and once for Queen.</p>
+      <form id="codeForm" class="code-row">
+        <label class="field"><span>How many cards to make</span><input name="count" type="number" min="1" max="2000" value="300"></label>
+        <button class="btn btn-small" type="submit">Make cards</button>
+        <a class="c-link" href="/committee/cards" target="_blank" rel="noopener">Print all cards</a>
+        <a class="c-link" href="/api/admin/codes.csv">Download the list</a>
+      </form>
+
+      <details class="manual">
+        <summary>Change the stage by hand</summary>
+        <div class="stage-pick" id="stagePick" role="radiogroup" aria-label="Royal Court stage"></div>
+      </details>
     </section>
 
     <section class="c-section">

@@ -26,7 +26,6 @@ async function seed(db) {
   await db.collection('backs').createIndex({ dish_id: 1 });
   await db.collection('settings').bulkWrite([
     upsertNew('stage', { value: 'nominations' }),
-    upsertNew('require_codes', { value: false }),
   ], { ordered: false });
   await db.collection('dishes').bulkWrite(SEED_DISHES.map(([_id, name, category, note, base_count, status]) =>
     upsertNew(_id, { name, category, note, base_count, status, created_at: new Date() })), { ordered: false });

@@ -1,0 +1,24 @@
+@font-face { font-family: 'Bodoni'; src: url(/fonts/bodoni.woff2) format('woff2'); font-weight: 400 900; }
+@font-face { font-family: 'Jost'; src: url(/fonts/jost.woff2) format('woff2'); font-weight: 100 900; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #e9e4d8; color: #15100a; font-family: 'Jost', system-ui, sans-serif; }
+.bar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 16px 24px; background: #0b0906; color: #f5ecd9; }
+.bar p { margin: 0; flex: 1 1 320px; }
+.bar button { padding: 12px 22px; border: 0; background: #e9c874; color: #1a1208; font: 600 14px/1 'Jost', sans-serif; letter-spacing: .12em; text-transform: uppercase; cursor: pointer; }
+.bar a { color: #e9c874; }
+.sheet { display: grid; grid-template-columns: repeat(2, 90mm); gap: 0; justify-content: center; padding: 24px 0; }
+.card { width: 90mm; height: 62mm; padding: 5mm 6mm; background: #fff; border: 1px dashed #b9ad94; display: flex; flex-direction: column; justify-content: space-between; break-inside: avoid; }
+.card-top { margin: 0; display: flex; align-items: center; gap: 2mm; font-size: 7.5pt; font-weight: 600; letter-spacing: .14em; text-transform: uppercase; color: #6b4d16; }
+.mark { width: 7mm; height: 7mm; fill: #8a6420; }
+.card-mid { display: grid; grid-template-columns: 28mm 1fr; gap: 5mm; align-items: center; }
+.qr svg { display: block; width: 28mm; height: 28mm; }
+.label { margin: 0; font-size: 7pt; letter-spacing: .2em; text-transform: uppercase; color: #6b4d16; }
+.code { margin: 1mm 0 2mm; font: 600 19pt/1 'Jost', monospace; letter-spacing: .12em; }
+.rule { margin: 0; font: italic 500 10pt/1.25 'Bodoni', Georgia, serif; }
+.how { margin: 0; padding-top: 2mm; border-top: .3mm solid #e2d3ae; font-size: 7pt; line-height: 1.35; color: #3a2e1c; }
+@page { size: A4; margin: 10mm; }
+@media print {
+  body { background: #fff; }
+  .bar { display: none; }
+  .sheet { padding: 0; }
+}

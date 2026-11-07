@@ -42,7 +42,76 @@
 
   const update = async (url, method, json) => render(await api(url, method, json));
 
+  // The committee only ever needs the next step, so each stage shows one main button.
+  const FLOW = {
+    nominations: {
+      state: 'Nominations are open',
+      hint: () => 'Approve the nominees below. When the list is final, publish the ballot.',
+      actions: [['Publish the ballot', 'ballot', 'Publish the ballot? Nominations close and approved nominees appear on the site.']],
+    },
+    ballot: {
+      state: 'Ballot published. Voting is closed',
+      hint: (data) => (data.codeCount
+        ? 'Guests can see the nominees. Open voting on the night, once the cards are handed out.'
+        : 'Make and print the ballot cards below before you open voting.'),
+      actions: [
+        ['Open voting', 'voting', 'Open voting now? Guests can vote with their ballot cards.'],
+        ['Reopen nominations', 'nominations', 'Reopen nominations? The ballot is hidden from the site until you publish it again.', 'secondary'],
+      ],
+    },
+    voting: {
+      state: 'Voting is open',
+      hint: () => 'Guests vote by scanning their cards. These numbers update every 10 seconds.',
+      actions: [
+        ['Close voting and announce the winners', 'crowned', 'Close voting and show the winners on the site?'],
+        ['Pause voting', 'ballot', 'Pause voting? Nobody can vote until you open it again.', 'secondary'],
+      ],
+    },
+    crowned: {
+      state: 'Winners announced',
+      hint: () => 'The winners are showing on the site.',
+      actions: [['Reopen voting', 'voting', 'Reopen voting? The winners are hidden until you announce them again.', 'secondary']],
+    },
+  };
+
+  const leader = (data, category) => {
+    const ranked = data.nominations.filter((n) => n.status === 'approved' && n.category === category)
+      .sort((a, b) => b.votes - a.votes);
+    if (!ranked.length || !ranked[0].votes) return 'No votes yet';
+    const tied = ranked.filter((n) => n.votes === ranked[0].votes).map((n) => n.name).join(' and ');
+    return `${tied} (${ranked[0].votes})`;
+  };
+
+  const renderVoting = (data) => {
+    const flow = FLOW[data.stage];
+    $('#voteState').textContent = flow.state;
+    $('#voteState').dataset.stage = data.stage;
+    $('#voteHint').textContent = flow.hint(data);
+    $('#voteActions').replaceChildren(...flow.actions.map(([label, stage, question, kind]) => {
+      const blocked = stage === 'voting' && !data.codeCount;
+      return el('button', {
+        type: 'button',
+        class: kind === 'secondary' ? 'mini' : 'btn btn-foil',
+        text: label,
+        ...(blocked ? { disabled: '' } : {}),
+        onclick: () => {
+          if (confirm(question)) update('/api/admin/settings', 'PATCH', { stage });
+        },
+      });
+    }));
+    const votes = data.nominations.reduce((sum, n) => sum + n.votes, 0);
+    const stat = (value, label) => el('li', {}, el('b', { text: value }), el('span', { text: label }));
+    $('#voteStats').replaceChildren(
+      stat(votes, 'Votes cast'),
+      stat(`${data.cardsUsed} of ${data.codeCount}`, 'Cards used'),
+      stat(leader(data, 'king'), 'Leading for Prom King'),
+      stat(leader(data, 'queen'), 'Leading for Prom Queen'),
+    );
+  };
+
   const button = (label, onclick, cls = '') => el('button', { class: `mini ${cls}`, type: 'button', text: label, onclick });
+
+  let lastStage = '';
 
   const render = (data) => {
     $('#login').hidden = true;
@@ -63,8 +132,8 @@
       type: 'button', role: 'radio', 'aria-checked': String(data.stage === value), text: label,
       onclick: () => update('/api/admin/settings', 'PATCH', { stage: value }),
     })));
-    $('#requireCodes').checked = data.requireCodes;
-    $('#codeCount').textContent = data.codeCount;
+    renderVoting(data);
+    lastStage = data.stage;
 
     $('#noms').replaceChildren(...(data.nominations.length ? data.nominations.map((n) => el('article', { class: `nom ${n.status}` },
       el('img', { src: `/api/admin/portraits/${n.photo}`, alt: `Portrait submitted for ${n.name}` }),
@@ -126,12 +195,18 @@
     showLogin();
   });
 
-  $('#requireCodes').addEventListener('change', (event) => update('/api/admin/settings', 'PATCH', { requireCodes: event.target.checked }));
 
   $('#codeForm').addEventListener('submit', (event) => {
     event.preventDefault();
-    update('/api/admin/codes', 'POST', { count: event.target.count.value });
+    const count = event.target.count.value;
+    if (confirm(`Make ${count} more ballot cards?`)) update('/api/admin/codes', 'POST', { count });
   });
+
+  // Live counts while voting is open, unless someone is typing.
+  setInterval(() => {
+    const typing = document.activeElement?.matches('input, textarea');
+    if (lastStage === 'voting' && !document.hidden && !typing) api('/api/admin/data').then(render).catch(() => {});
+  }, 10_000);
 
   api('/api/admin/data').then(render).catch(showLogin);
 })();

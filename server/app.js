@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import compression from 'compression';
+import QRCode from 'qrcode';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -126,7 +127,7 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
     }
   }));
 
-  app.use(['/api', '/portraits', '/vote'], wrap(async (req, res, next) => {
+  app.use(['/api', '/portraits', '/vote', '/committee/cards'], wrap(async (req, res, next) => {
     await ensureDb();
     next();
   }));
@@ -188,26 +189,27 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
 
   // ---- Public API ----------------------------------------------------------
 
+  const codeFrom = (value) => clean(value, 12).toUpperCase();
+
+  // Every vote needs a ballot card code. Sending the code here shows the guest which crowns it has used.
   app.get('/api/state', visitor, wrap(async (req, res) => {
-    const [stage, requireCodes] = await Promise.all([getSetting(db, 'stage'), getSetting(db, 'require_codes')]);
-    const myVotes = {};
-    if (!requireCodes) {
-      for (const row of await collection('votes').find({ voter: req.visitor }).toArray()) {
-        myVotes[row.category] = row.nominee_id;
-      }
-    }
-    const [nominees, crowned, lineup, dishes] = await Promise.all([
+    const stage = await getSetting(db, 'stage');
+    const code = codeFrom(req.query.code);
+    const [nominees, crowned, lineup, dishes, card, used] = await Promise.all([
       stage === 'nominations' ? [] : ballot(),
       stage === 'crowned' ? results() : null,
       collection('lineup').find().sort({ position: 1 }).toArray(),
       dishesFor(req.visitor),
+      code ? collection('codes').findOne({ _id: code }) : null,
+      code ? collection('votes').find({ voter: `code:${code}` }).toArray() : [],
     ]);
     res.set('Cache-Control', 'no-store').json({
       stage,
-      requireCodes: Boolean(requireCodes),
+      requireCodes: true,
+      code: code ? { value: code, valid: Boolean(card) } : null,
       nominees,
       results: crowned,
-      myVotes,
+      myVotes: Object.fromEntries(used.map((v) => [v.category, v.nominee_id])),
       lineup: lineup.map((a) => (a.revealed
         ? { id: a._id, position: a.position, revealed: true, name: a.name, role: a.role }
         : { id: a._id, position: a.position, revealed: false })),
@@ -276,7 +278,7 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
   }));
 
   // Many guests share the venue's Wi-Fi address, so this limit is deliberately generous.
-  app.post('/api/vote', limit('vote', 900, 60_000), visitor, wrap(async (req, res) => {
+  app.post('/api/vote', limit('vote', 900, 60_000), wrap(async (req, res) => {
     if (await getSetting(db, 'stage') !== 'voting') return res.status(409).json({ error: 'Voting is not open.' });
     const nominee = await collection('nominations').findOne(
       { _id: String(req.body.nomineeId ?? ''), status: 'approved' },
@@ -284,21 +286,22 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
     );
     if (!nominee) return res.status(404).json({ error: 'That nominee is not on the ballot.' });
 
-    let voter = req.visitor;
-    if (await getSetting(db, 'require_codes')) {
-      const code = clean(req.body.code, 12).toUpperCase();
-      if (!await collection('codes').findOne({ _id: code })) {
-        return res.status(403).json({ error: 'That ballot code is not valid.' });
-      }
-      voter = `code:${code}`;
+    const code = codeFrom(req.body.code);
+    if (!code) return res.status(403).json({ error: 'Enter the code from your ballot card first.' });
+    if (!await collection('codes').findOne({ _id: code })) {
+      return res.status(403).json({ error: 'That ballot code is not valid.' });
     }
+    const voter = `code:${code}`;
     try {
       await collection('votes').insertOne({
         _id: `${nominee.category}:${voter}`,
         category: nominee.category, nominee_id: nominee._id, voter, created_at: new Date(),
       });
     } catch (error) {
-      if (error.code === 11000) return res.status(409).json({ error: 'This ballot has already been cast.' });
+      if (error.code === 11000) {
+        const crown = nominee.category === 'king' ? 'Prom King' : 'Prom Queen';
+        return res.status(409).json({ error: `This card has already voted for ${crown}.` });
+      }
       throw error;
     }
     res.status(201).json({ ok: true, category: nominee.category, nomineeId: nominee._id });
@@ -348,9 +351,8 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
   app.post('/api/admin/logout', (req, res) => res.clearCookie('gr_admin').json({ ok: true }));
 
   const adminData = async () => {
-    const [stage, requireCodes, enquiries, nominations, votes, dishes, backs, lineup, codeCount] = await Promise.all([
+    const [stage, enquiries, nominations, votes, dishes, backs, lineup, codeCount, cardsUsed] = await Promise.all([
       getSetting(db, 'stage'),
-      getSetting(db, 'require_codes'),
       collection('enquiries').find().sort({ created_at: -1 }).toArray(),
       collection('nominations').find({}, { projection: { image: 0 } }).sort({ created_at: -1 }).toArray(),
       voteCounts(),
@@ -358,10 +360,10 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
       backCounts(),
       collection('lineup').find().sort({ position: 1 }).toArray(),
       collection('codes').countDocuments(),
+      collection('votes').distinct('voter'),
     ]);
     return {
       stage,
-      requireCodes: Boolean(requireCodes),
       enquiries: enquiries.map((e) => ({ ...withId(e), created_at: timestamp(e.created_at) })),
       nominations: nominations.map((n) => ({ ...withId(n), created_at: timestamp(n.created_at), votes: votes[n._id] ?? 0 })),
       dishes: dishes
@@ -369,6 +371,7 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
         .sort((a, b) => (b.status === 'pending') - (a.status === 'pending') || b.count - a.count),
       lineup: lineup.map(withId),
       codeCount,
+      cardsUsed: cardsUsed.length,
     };
   };
 
@@ -381,12 +384,9 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
   }));
 
   app.patch('/api/admin/settings', admin, wrap(async (req, res) => {
-    const { stage, requireCodes } = req.body;
-    if (stage !== undefined) {
-      if (!STAGES.includes(stage)) return res.status(400).json({ error: 'Unknown stage.' });
-      await setSetting(db, 'stage', stage);
-    }
-    if (requireCodes !== undefined) await setSetting(db, 'require_codes', Boolean(requireCodes));
+    const { stage } = req.body;
+    if (!STAGES.includes(stage)) return res.status(400).json({ error: 'Unknown stage.' });
+    await setSetting(db, 'stage', stage);
     res.json(await adminData());
   }));
 
@@ -427,6 +427,39 @@ export async function createApp({ mongoUri, dbName = DEFAULT_DB, adminPassword, 
       if (error.code !== 11000) throw error;
     });
     res.json(await adminData());
+  }));
+
+  // Printable ballot cards. Each QR code opens the vote with that card's code filled in.
+  app.get('/committee/cards', wrap(async (req, res) => {
+    if (!adminPassword || !validSession(parseCookies(req).gr_admin)) return res.redirect(302, '/committee');
+    const codes = (await collection('codes').find().sort({ _id: 1 }).toArray()).map((c) => c._id);
+    const site = origin(req);
+    const host = site.replace(/^https?:\/\//, '');
+    const cards = await Promise.all(codes.map(async (code) => {
+      const qr = await QRCode.toString(`${site}/royal-court?code=${code}`, { type: 'svg', margin: 0, errorCorrectionLevel: 'M' });
+      return `<article class="card">
+  <p class="card-top"><svg class="mark" viewBox="0 0 100 100" aria-hidden="true"><path d="M34 54a16 16 0 0 1 32 0z"/><rect x="12" y="58.5" width="76" height="3.4"/><rect x="24" y="66" width="52" height="3"/><rect x="34" y="72.8" width="32" height="2.6"/><rect x="43" y="79" width="14" height="2.2"/></svg>The Grand Riviera &middot; Royal Court ballot</p>
+  <div class="card-mid">
+    <div class="qr">${qr}</div>
+    <div>
+      <p class="label">Your code</p>
+      <p class="code">${code}</p>
+      <p class="rule">One vote for Prom King and one for Prom Queen.</p>
+    </div>
+  </div>
+  <p class="how">Scan to vote, or open <b>${host}/royal-court</b> and enter your code. Each card works once.</p>
+</article>`;
+    }));
+    res.set('Cache-Control', 'no-store').type('html').send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex">
+<title>Ballot cards · The Grand Riviera</title>
+<link rel="stylesheet" href="/css/cards.css"></head>
+<body>
+<header class="bar"><p><b>${codes.length} ballot cards</b> ready to print. Cut along the dashed lines and give one to each guest at the door.</p>
+<button id="print" type="button">Print cards</button> <a href="/committee">Back to the committee</a></header>
+<main class="sheet">${cards.join('\n') || '<p>No cards yet. Make some on the committee page first.</p>'}</main>
+<script src="/js/print-cards.js" defer></script>
+</body></html>`);
   }));
 
   app.get('/api/admin/codes.csv', admin, wrap(async (req, res) => {

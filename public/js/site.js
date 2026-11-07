@@ -252,9 +252,22 @@
   const STAGES = ['nominations', 'ballot', 'voting', 'crowned'];
   const courtBody = $('#courtBody');
   const CATEGORY_NAMES = { king: 'Prom King', queen: 'Prom Queen' };
-  let ballotCode = '';
+  // A scanned ballot card arrives as ?code=, which is kept for this visit and removed from the address bar.
+  const readCode = () => {
+    const fromLink = new URLSearchParams(location.search).get('code');
+    if (fromLink) {
+      history.replaceState(null, '', location.pathname + location.hash);
+      try { sessionStorage.setItem('ballotCode', fromLink.trim().toUpperCase()); } catch { /* private mode */ }
+      return fromLink.trim().toUpperCase();
+    }
+    try { return sessionStorage.getItem('ballotCode') || ''; } catch { return ''; }
+  };
+  let ballotCode = readCode();
+  const rememberCode = (code) => {
+    ballotCode = code;
+    try { sessionStorage.setItem('ballotCode', code); } catch { /* private mode */ }
+  };
   let courtKey = '';
-  const codedVotes = {};
 
   // Phone photos can be larger than the host accepts, so they are resized before uploading.
   const shrinkPhoto = async (file) => {
@@ -341,7 +354,7 @@
         card.append(el('p', { class: 'nominee-picked', text: 'Your vote' }));
       } else if (!voted) {
         const button = el('button', { class: 'btn btn-foil', type: 'button' }, el('span', { text: 'Vote' }));
-        button.addEventListener('click', () => vote(nominee, button, state));
+        button.addEventListener('click', () => vote(nominee, button));
         card.append(button);
       }
     }
@@ -351,28 +364,20 @@
     return card;
   };
 
-  const vote = async (nominee, button, state) => {
+  const vote = async (nominee, button) => {
     const notice = $('#voteMsg');
     notice.textContent = '';
     notice.classList.remove('error');
-    if (state.requireCodes && !ballotCode) {
+    if (!ballotCode) {
       notice.classList.add('error');
-      notice.textContent = 'Enter the ballot code from your card first.';
+      notice.textContent = 'Enter the code from your ballot card first.';
       $('#ballotCode').focus();
       return;
     }
     button.disabled = true;
     try {
       await api('/api/vote', { json: { nomineeId: nominee.id, code: ballotCode } });
-      if (state.requireCodes) {
-        // The server cannot link a code to this browser, so remember the choice here for display.
-        codedVotes[nominee.category] = nominee.id;
-        state.myVotes[nominee.category] = nominee.id;
-        courtKey = '';
-        renderCourt(state);
-      } else {
-        await load();
-      }
+      await load();
     } catch (error) {
       notice.classList.add('error');
       notice.textContent = error.message;
@@ -383,18 +388,34 @@
   const renderBallot = (state) => {
     const nodes = [];
     if (state.stage === 'ballot') {
-      nodes.push(el('p', { class: 'court-wait', text: 'The official ballot is out. The live vote opens on the night, and the crowns go to the highest count.' }));
+      nodes.push(el('p', { class: 'court-wait', text: 'The official ballot is out. The live vote opens on the night, with a ballot card for every guest.' }));
     } else {
+      const both = Boolean(state.myVotes.king && state.myVotes.queen);
       const intro = el('div', { class: 'court-wait' },
-        el('p', { text: 'The live vote is open. One ballot for King, one for Queen.' }));
-      if (state.requireCodes) {
-        const box = el('label', { class: 'field code-box' }, el('span', { text: 'Ballot code from your card' }));
-        const input = el('input', { id: 'ballotCode', maxlength: '12', autocomplete: 'off', autocapitalize: 'characters', value: ballotCode });
-        input.addEventListener('input', () => { ballotCode = input.value.trim(); });
-        box.append(input);
-        intro.append(box);
+        el('p', { text: both
+          ? 'Thank you. Your card has voted for both crowns.'
+          : 'The live vote is open. Your ballot card gives you one vote for Prom King and one for Prom Queen.' }));
+      const box = el('form', { class: 'field code-box', novalidate: '' }, el('label', { for: 'ballotCode', text: 'Code from your ballot card' }));
+      const input = el('input', { id: 'ballotCode', maxlength: '12', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false', value: ballotCode });
+      const check = () => {
+        rememberCode(input.value.trim().toUpperCase());
+        load().catch(() => {});
+      };
+      input.addEventListener('change', check);
+      box.addEventListener('submit', (event) => {
+        event.preventDefault();
+        check();
+      });
+      box.append(input);
+      if (!both) intro.append(box);
+      const status = el('p', { id: 'voteMsg', class: 'form-msg', role: 'status' });
+      if (state.code && !state.code.valid) {
+        status.classList.add('error');
+        status.textContent = 'That code is not recognised. Check your card and try again.';
+      } else if (state.code?.valid && !both) {
+        status.textContent = 'Code accepted. Tap Vote under your choices.';
       }
-      intro.append(el('p', { id: 'voteMsg', class: 'form-msg', role: 'status' }));
+      intro.append(status);
       nodes.push(intro);
     }
     for (const category of ['king', 'queen']) {
@@ -431,7 +452,7 @@
 
   const renderCourt = (state) => {
     // A poll must not wipe a half-filled form, so only redraw when the content changes.
-    const key = JSON.stringify([state.stage, state.requireCodes, state.nominees, state.results, state.myVotes]);
+    const key = JSON.stringify([state.stage, state.code, state.nominees, state.results, state.myVotes]);
     if (key === courtKey) return;
     courtKey = key;
 
@@ -447,7 +468,7 @@
       const rules = el('ul', { class: 'court-rules' },
         el('li', { text: 'Put a name forward with a portrait.' }),
         el('li', { text: 'The committee reviews every entry and publishes the official ballot.' }),
-        el('li', { text: 'The live vote opens on the night.' }),
+        el('li', { text: 'The live vote opens on the night, with a ballot card for every guest.' }),
         el('li', { text: 'The crowns go to the highest count, before the last song.' }));
       courtBody.replaceChildren(el('div', { class: 'court-grid' },
         el('div', { class: 'court-copy' },
@@ -495,8 +516,7 @@
   // Live data, only on the pages that show it --------------------------------
   let lineupKey = '';
   const load = async () => {
-    const state = await api('/api/state');
-    if (state.requireCodes) Object.assign(state.myVotes, codedVotes);
+    const state = await api(ballotCode ? `/api/state?code=${encodeURIComponent(ballotCode)}` : '/api/state');
     if (lineupList) {
       const nextLineup = JSON.stringify(state.lineup);
       if (nextLineup !== lineupKey) {

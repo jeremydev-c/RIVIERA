@@ -620,3 +620,8 @@ h2 em { font-style: italic; font-weight: 400; color: var(--gold-light); }
 @media (max-width: 620px) {
   .share-strip-actions, .share-strip .btn { width: 100%; }
 }
+
+.code-box { margin: 18px auto 0; text-align: left; }
+.code-box > label { display: block; margin-bottom: 6px; font-size: 13px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--gold-light); }
+.code-box input { width: 100%; min-height: 54px; padding: 12px 14px; background: #1a130a; border: 1px solid rgba(233, 200, 116, .5); color: var(--ivory); font: 600 22px/1 var(--body); letter-spacing: .18em; text-transform: uppercase; }
+.code-box input:focus { outline: 0; border-color: var(--gold-light); }

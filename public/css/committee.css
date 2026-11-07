@@ -56,3 +56,16 @@
 @media (max-width: 620px) {
   .act-form { grid-template-columns: 1fr; }
 }
+
+.c-sub { margin: 28px 0 0; font: 500 24px/1.2 var(--display); color: var(--ivory); }
+.vote-panel { padding: 22px; margin-bottom: 14px; background: #0f0b07; border: 1px solid var(--line); }
+.vote-state { font: 500 clamp(26px, 3vw, 36px)/1.15 var(--display); color: var(--ivory); }
+.vote-state[data-stage=voting] { color: var(--gold-light); }
+.vote-state[data-stage=voting]::before { content: ''; display: inline-block; width: 12px; height: 12px; margin: 0 12px 4px 0; border-radius: 50%; background: #7fd18b; box-shadow: 0 0 0 5px rgba(127, 209, 139, .2); }
+.vote-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.vote-actions .btn { min-height: 54px; }
+.vote-actions .btn[disabled] { opacity: .4; cursor: not-allowed; }
+#voteStats b { font-size: 26px; }
+.manual { margin-top: 22px; }
+.manual summary { cursor: pointer; color: var(--muted); font-size: 15px; }
+.manual .stage-pick { margin-top: 12px; }
